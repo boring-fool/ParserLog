@@ -10,6 +10,7 @@ log = '''123.125.71.36 - - [06/Apr/2017:18:09:25 +0800] "GET / HTTP/1.1" 200 864
 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"'''
 patrren = '''(?P<remote>[\d\.]{7,}) - - \[(?P<datetime>[^\[\]]+)\] "(?P<request>[^"]+)" (?P<status>[\d]+) (?P<size>[\d]+) "[^"]+" "(?P<useragent>[^"]+)"'''
 regex = re.compile(patrren)
+#信息提取
 def extract(line):
     matcher = regex.match(line)
     return {k:ops.get(k,lambda x:x)(v) for k,v in matcher.groupdict().items()}
@@ -19,6 +20,24 @@ ops ={
     'size' : int,
     'request' : lambda request:dict(zip(['method','url','protool'],request.split()))
 }
+#滑动窗口
+def window(src:Queue,handler,width:int,interval:int):
+
+    start = datetime.datetime.strptime('20170101 00000 +0800','%Y%m%d %H%M%S %z')
+    current = datetime.datetime.strptime('20170101 00000 +0800', '%Y%m%d %H%M%S %z')
+    delta = datetime.timedelta(width - interval)
+    buffers = []
+    while True:
+        data = src.get()
+        if data:
+            buffers.append(data)
+            current = data['datetime']
+        if (current - start).total_seconds() >=interval:
+            ret = handler(buffers)
+            print(ret)
+            start = current
+            buffers = [data for data in buffers if data['datetime'] > (current - delta)]
+#文件读取
 def open_file(path):
     with open(path) as file:
         for line in file:
@@ -39,7 +58,7 @@ def load(*path:Path):
                     yield from open_file(file)
         elif pth.is_file():
             yield from open_file(pth)
-
+#几个简单的分析函数
 def donothing_handler(iterable):
     print(iterable)
 def status_handler(iterable):
@@ -55,24 +74,9 @@ def browser_handler(iterable):
         key = (ua_parser.browser.family,ua_parser.browser.version_string)
         ua_dict[key] += 1
     return ua_dict
-def window(src:Queue,handler,width:int,interval:int):
-
-    start = datetime.datetime.strptime('20170101 00000 +0800','%Y%m%d %H%M%S %z')
-    current = datetime.datetime.strptime('20170101 00000 +0800', '%Y%m%d %H%M%S %z')
-    delta = datetime.timedelta(width - interval)
-    buffers = []
-    while True:
-        data = src.get()
-        if data:
-            buffers.append(data)
-            current = data['datetime']
-        if (current - start).total_seconds() >=interval:
-            ret = handler(buffers)
-            print(ret)
-            start = current
-            buffers = [data for data in buffers if data['datetime'] > (current - delta)]
 
 
+#分发器
 def dispatch(src):
     queues = []
     threads = []
